@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lock-On Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: arena canvas on the left, a telemetry rack on the right (stacks below on phones).
+   Single dark "test range" look on purpose, so every color is set explicitly. */
+:root {
+  --bg: #0c1113;
+  --panel: #131b1e;
+  --line: #22313a;
+  --fg: #dde7e5;
+  --muted: #7f9492;
+  --accent: #f2a93b;      /* the bot / lock-on */
+  --player: #5cc8df;
+  --target: #d6def5;
+  --ok: #4fd18b;
+  --warn: #f2d23b;
+  --bad: #ff5a4e;
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 var(--font-body);
+  padding-inline: 16px;
+  padding-block: 16px 32px;
+}
+header {
+  max-width: 1320px; margin: 0 auto 14px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+}
+h1 {
+  font: 700 26px/1.1 var(--font-display);
+  letter-spacing: 0.02em; margin: 0; text-wrap: balance;
+}
+h1 span { color: var(--accent); }
+.sub { color: var(--muted); margin: 0; }
+.layout {
+  max-width: 1320px; margin: 0 auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;
+}
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.stage { min-width: 0; display: grid; gap: 8px; }
+canvas {
+  display: block; width: 100%; max-width: 100%; aspect-ratio: 5 / 3;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  cursor: none; touch-action: none;
+}
+.keys { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+kbd {
+  font: 600 11px var(--font-data); color: var(--fg);
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px;
+}
+
+.rack { display: grid; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: grid; gap: 12px; }
+.card h2 {
+  margin: 0; font: 700 12px var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+label { cursor: pointer; }
+select, button {
+  font: 500 13px var(--font-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px;
+}
+button { cursor: pointer; }
+button:hover, select:hover { border-color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type="checkbox"] { accent-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); width: 140px; }
+.checks { display: grid; gap: 6px; }
+.checks label { display: flex; gap: 8px; align-items: center; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+
+.chip {
+  font: 600 11px var(--font-data); letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor;
+}
+.chip.idle { color: var(--muted); }
+.chip.armed { color: var(--accent); }
+.chip.ok { color: var(--ok); }
+.chip.warn { color: var(--warn); }
+.chip.bad { color: var(--bad); }
+
+.meter { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width 0.15s linear, background 0.3s; }
+.score { font: 700 30px/1 var(--font-data); font-variant-numeric: tabular-nums; }
+.score small { font-size: 13px; color: var(--muted); font-weight: 400; }
+
+.detectors { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.detectors li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
+.detectors b { font-weight: 600; }
+.detectors span.n { font: 600 13px var(--font-data); font-variant-numeric: tabular-nums; color: var(--muted); }
+.detectors span.n.hot { color: var(--bad); }
+.detectors small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.stats div { display: grid; }
+.stats b { font: 600 18px var(--font-data); font-variant-numeric: tabular-nums; }
+.stats span { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.log {
+  list-style: none; margin: 0; padding: 0; max-height: 170px; overflow-y: auto;
+  font: 12px/1.6 var(--font-data); display: grid; gap: 2px;
+}
+.log li { display: flex; gap: 8px; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.log .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lock-On <span>Lab</span></h1>
+  <p class="sub">A test range with a built-in aim bot and the anti-cheat that tries to catch it.</p>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <canvas id="arena" aria-label="Arena. Move the mouse to aim, click to shoot."></canvas>
+    <div class="keys">
+      <span><kbd>Mouse</kbd> aim</span>
+      <span><kbd>Click</kbd> shoot</span>
+      <span><kbd>Right-click</kbd> / <kbd>Q</kbd> hold to lock on</span>
+      <span><kbd>WASD</kbd> move</span>
+      <span><kbd>B</kbd> next bot mode</span>
+      <span><kbd>R</kbd> reset</span>
+    </div>
+  </section>
+
+  <aside class="rack">
+    <section class="card" aria-labelledby="bot-h">
+      <h2 id="bot-h">Aim bot <span id="botChip" class="chip idle">Off</span></h2>
+      <div class="row">
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="off">Off</option>
+          <option value="snap">Snap (instant flick)</option>
+          <option value="smooth" selected>Smooth (linear pull)</option>
+          <option value="humanized">Humanized (delay + jitter)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="strength">Strength</label>
+        <input id="strength" type="range" min="0" max="1" step="0.05" value="0.5">
+      </div>
+      <div class="checks">
+        <label for="always"><input id="always" type="checkbox"> Always on (no need to hold)</label>
+        <label for="autofire"><input id="autofire" type="checkbox" checked> Auto-fire when on target</label>
+        <label for="esp"><input id="esp" type="checkbox"> Lock through walls (ESP)</label>
+      </div>
+      <p class="hint">The bot lives inside this game and reads its own target list. It can't see or control anything outside this page.</p>
+    </section>
+
+    <section class="card" aria-labelledby="ac-h">
+      <h2 id="ac-h">Anti-cheat <span id="verdict" class="chip ok">Clean</span></h2>
+      <div class="score"><span id="score">0</span> <small>/ 100 suspicion</small></div>
+      <div class="meter"><i id="meter"></i></div>
+      <ul class="detectors" id="detectors"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="stats-h">
+      <h2 id="stats-h">Session <button id="reset" type="button">Reset</button></h2>
+      <div class="stats">
+        <div><b id="sShots">0</b><span>Shots</span></div>
+        <div><b id="sHits">0</b><span>Hits</span></div>
+        <div><b id="sAcc">–</b><span>Accuracy</span></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="log-h">
+      <h2 id="log-h">Detection log</h2>
+      <ul class="log" id="log"></ul>
+    </section>
+  </aside>
+</main>
+
+<script>
+(() => {
+  // ---------- World ----------
+  const W = 1000, H = 600;
+  const TARGET_R = 16, PLAYER_R = 12, FIRE_COOLDOWN = 160;
+  const walls = [
+    { x: 180, y: 110, w: 40, h: 230 },
+    { x: 420, y: 80, w: 170, h: 36 },
+    { x: 770, y: 130, w: 40, h: 250 },
+    { x: 300, y: 380, w: 190, h: 36 },
+    { x: 575, y: 290, w: 36, h: 170 },
+    { x: 60, y: 430, w: 130, h: 30 },
+    { x: 820, y: 460, w: 120, h: 30 },
+  ];
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+
+  function inWall(x, y, pad = 0) {
+    return walls.some(r => x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad);
+  }
+
+  // Liang–Barsky segment vs. rectangle
+  function segHitsRect(x1, y1, x2, y2, r) {
+    let t0 = 0, t1 = 1;
+    const dx = x2 - x1, dy = y2 - y1;
+    const p = [-dx, dx, -dy, dy];
+    const q = [x1 - r.x, r.x + r.w - x1, y1 - r.y, r.y + r.h - y1];
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) { if (q[i] < 0) return false; continue; }
+      const t = q[i] / p[i];
+      if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+      else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  }
+  const lineOfSight = (x1, y1, x2, y2) => !walls.some(r => segHitsRect(x1, y1, x2, y2, r));
+
+  const player = { x: 500, y: 555 };
+  const cross = { x: 500, y: 300 };
+  const keys = new Set();
+
+  function freeSpot(minFromPlayer = 140) {
+    for (let i = 0; i < 200; i++) {
+      const x = rand(30, W - 30), y = rand(30, H - 90);
+      if (!inWall(x, y, TARGET_R + 6) && dist(x, y, player.x, player.y) > minFromPlayer) return { x, y };
+    }
+    return { x: 500, y: 60 };
+  }
+
+  const targets = [];
+  function spawn(t, id) {
+    const p = freeSpot();
+    const w = freeSpot(0);
+    Object.assign(t, {
+      id, x: p.x, y: p.y, wx: w.x, wy: w.y,
+      speed: rand(0.05, 0.13), alive: true, visible: false, moving: true,
+      respawnAt: 0, pauseUntil: 0,
+    });
+    return t;
+  }
+  for (let i = 0; i < 6; i++) targets.push(spawn({}, i));
+
+  function updateTargets(now, dt) {
+    for (const t of targets) {
+      if (!t.alive) {
+        if (now >= t.respawnAt) spawn(t, t.id);
+        continue;
+      }
+      t.moving = now >= t.pauseUntil;
+      if (t.moving) {
+        const d = dist(t.x, t.y, t.wx, t.wy);
+        const step = t.speed * dt;
+        const nx = t.x + (t.wx - t.x) / (d || 1) * step;
+        const ny = t.y + (t.wy - t.y) / (d || 1) * step;
+        if (d < step + 2 || inWall(nx, ny, TARGET_R)) {
+          const w = freeSpot(0);
+          t.wx = w.x; t.wy = w.y;
+          if (Math.random() < 0.3) t.pauseUntil = now + rand(200, 900);
+        } else {
+          t.x = nx; t.y = ny;
+        }
+      }
+      t.visible = lineOfSight(player.x, player.y, t.x, t.y);
+    }
+  }
+
+  function updatePlayer(dt) {
+    const v = 0.22 * dt;
+    let dx = 0, dy = 0;
+    if (keys.has("KeyW")) dy -= v;
+    if (keys.has("KeyS")) dy += v;
+    if (keys.has("KeyA")) dx -= v;
+    if (keys.has("KeyD")) dx += v;
+    const nx = Math.min(W - PLAYER_R, Math.max(PLAYER_R, player.x + dx));
+    const ny = Math.min(H - PLAYER_R, Math.max(PLAYER_R, player.y + dy));
+    if (!inWall(nx, player.y, PLAYER_R)) player.x = nx;
+    if (!inWall(player.x, ny, PLAYER_R)) player.y = ny;
+  }
+
+  // ---------- Shooting ----------
+  const stats = { shots: 0, hits: 0 };
+  const tracers = [], sparks = [];
+  let lastShot = -1e9;
+
+  function fire(now) {
+    if (now - lastShot < FIRE_COOLDOWN) return;
+    lastShot = now;
+    stats.shots++;
+    let hit = null;
+    for (const t of targets) {
+      if (!t.alive) continue;
+      if (dist(cross.x, cross.y, t.x, t.y) <= TARGET_R && lineOfSight(player.x, player.y, t.x, t.y)) { hit = t; break; }
+    }
+    tracers.push({ x1: player.x, y1: player.y, x2: cross.x, y2: cross.y, born: now, hit: !!hit });
+    if (hit) {
+      stats.hits++;
+      hit.alive = false;
+      hit.respawnAt = now + 900;
+      for (let i = 0; i < 14; i++) {
+        const a = rand(0, Math.PI * 2), s = rand(0.05, 0.25);
+        sparks.push({ x: hit.x, y: hit.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, born: now });
+      }
+    }
+    ac.onShot(now, !!hit);
+  }
+
+  // ---------- The aim bot (only knows about this game's own targets) ----------
+  const bot = {
+    mode: "smooth", strength: 0.5, always: false, autofire: true, esp: false, held: false,
+    target: null, acquiredAt: 0, reaction: 0, onSince: null, fireDelay: 0,
+  };
+  const botActive = () => bot.mode !== "off" && (bot.always || bot.held);
+
+  function pickTarget() {
+    let best = null, bestD = Infinity;
+    for (const t of targets) {
+      if (!t.alive || (!bot.esp && !t.visible)) continue;
+      const d = dist(cross.x, cross.y, t.x, t.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  }
+
+  function updateBot(now, dt) {
+    if (!botActive()) { bot.target = null; return; }
+    const tg = bot.target;
+    if (!tg || !tg.alive || (!bot.esp && !tg.visible)) {
+      bot.target = pickTarget();
+      bot.acquiredAt = now;
+      bot.onSince = null;
+      bot.reaction = bot.mode === "humanized" ? rand(170, 290) : 0;
+      bot.fireDelay = bot.mode === "humanized" ? rand(70, 180) : bot.mode === "smooth" ? 40 : 0;
+    }
+    const t = bot.target;
+    if (!t) return;
+
+    if (bot.mode === "snap") {
+      cross.x = t.x; cross.y = t.y;
+    } else if (bot.mode === "smooth") {
+      const speed = 0.5 + bot.strength * 2.5; // px per ms
+      const d = dist(cross.x, cross.y, t.x, t.y);
+      const step = Math.min(d, speed * dt);
+      if (d > 0) { cross.x += (t.x - cross.x) / d * step; cross.y += (t.y - cross.y) / d * step; }
+    } else if (bot.mode === "humanized") {
+      if (now - bot.acquiredAt < bot.reaction) return;
+      const k = 1 - Math.exp(-dt / (170 - bot.strength * 120));
+      cross.x += (t.x - cross.x) * k + 1.8 * (Math.sin(now / 83) + Math.sin(now / 37 + 1.3));
+      cross.y += (t.y - cross.y) * k + 1.8 * (Math.sin(now / 71 + 2.1) + Math.sin(now / 29));
+    }
+
+    if (bot.autofire) {
+      if (dist(cross.x, cross.y, t.x, t.y) < TARGET_R * 0.6) {
+        if (bot.onSince === null) bot.onSince = now;
+        if (now - bot.onSince >= bot.fireDelay) fire(now);
+      } else {
+        bot.onSince = null;
+      }
+    }
+  }
+
+  // ---------- Anti-cheat: sees only aim telemetry, shots and the game's target state ----------
+  const DETECTORS = {
+    snap:     { name: "Snap-to-target", why: "Aim jumps 80+ px in one frame, lands within 3 px of a target's center, then fires.", weight: 18 },
+    reaction: { name: "Inhuman reaction", why: "On target less than 140 ms after it came into view from 60+ px away.", weight: 12 },
+    robotic:  { name: "Robotic tracking", why: "Follows a moving target for 600 ms with under 1.5 px of wobble.", weight: 15 },
+    wall:     { name: "Tracking through walls", why: "Aim follows a hidden target for 450 ms.", weight: 25 },
+    accuracy: { name: "Impossible accuracy", why: "90%+ hit rate over the last 20 shots.", weight: 20 },
+  };
+
+  const ac = {
+    reset() {
+      this.score = 0;
+      this.counts = Object.fromEntries(Object.keys(DETECTORS).map(k => [k, 0]));
+      this.log = [];
+      this.prev = null;
+      this.snapCandidate = null;
+      this.shots = [];
+      this.lastAccFlag = -1e9;
+      this.state = new Map();
+      this.t0 = performance.now();
+    },
+    flag(key, now, detail) {
+      this.counts[key]++;
+      this.score = Math.min(100, this.score + DETECTORS[key].weight);
+      this.log.unshift({ at: now - this.t0, key, detail });
+      if (this.log.length > 50) this.log.length = 50;
+    },
+    st(id) {
+      if (!this.state.has(id)) this.state.set(id, { on: false, wasVisible: false, visibleSince: null, distAtVisible: 0, samples: [], lastRobotic: -1e9, hiddenMs: 0, lastWall: -1e9 });
+      return this.state.get(id);
+    },
+    frame(now, dt) {
+      this.score = Math.max(0, this.score - dt * 0.004); // cools off 4 points per second
+
+      // Big one-frame jumps that land dead center on something
+      if (this.prev) {
+        const jump = dist(cross.x, cross.y, this.prev.x, this.prev.y);
+        if (jump > 80) {
+          for (const t of targets) {
+            if (t.alive && dist(cross.x, cross.y, t.x, t.y) < 3) { this.snapCandidate = { at: now, jump }; break; }
+          }
+        }
+      }
+      this.prev = { x: cross.x, y: cross.y };
+
+      for (const t of targets) {
+        const s = this.st(t.id);
+        if (!t.alive) { s.on = false; s.wasVisible = false; s.visibleSince = null; s.samples = []; s.hiddenMs = 0; continue; }
+        const d = dist(cross.x, cross.y, t.x, t.y);
+        const on = d < TARGET_R;
+
+        if (t.visible && !s.wasVisible) { s.visibleSince = now; s.distAtVisible = d; }
+        if (!t.visible) s.visibleSince = null;
+
+        if (on && !s.on && t.visible && s.visibleSince !== null && s.distAtVisible > 60) {
+          const rt = now - s.visibleSince;
+          if (rt < 140) this.flag("reaction", now, `${Math.round(rt)} ms to acquire from ${Math.round(s.distAtVisible)} px`);
+        }
+
+        if (on && t.visible && t.moving) {
+          s.samples.push({ at: now, dx: cross.x - t.x, dy: cross.y - t.y });
+          while (s.samples.length && now - s.samples[0].at > 700) s.samples.shift();
+          const span = s.samples.length ? now - s.samples[0].at : 0;
+          if (span >= 600 && now - s.lastRobotic > 2000) {
+            const n = s.samples.length;
+            const mx = s.samples.reduce((a, p) => a + p.dx, 0) / n;
+            const my = s.samples.reduce((a, p) => a + p.dy, 0) / n;
+            const sd = Math.sqrt(s.samples.reduce((a, p) => a + (p.dx - mx) ** 2 + (p.dy - my) ** 2, 0) / n);
+            if (sd < 1.5) { this.flag("robotic", now, `wobble ${sd.toFixed(2)} px over ${Math.round(span)} ms`); s.lastRobotic = now; }
+          }
+        } else {
+          s.samples = [];
+        }
+
+        if (!t.visible && d < 22) {
+          s.hiddenMs += dt;
+          if (s.hiddenMs > 450 && now - s.lastWall > 1500) { this.flag("wall", now, `followed hidden target ${Math.round(s.hiddenMs)} ms`); s.lastWall = now; s.hiddenMs = 0; }
+        } else {
+          s.hiddenMs = 0;
+        }
+
+        s.on = on;
+        s.wasVisible = t.visible;
+      }
+    },
+    onShot(now, hit) {
+      if (this.snapCandidate && now - this.snapCandidate.at < 150) {
+        this.flag("snap", now, `${Math.round(this.snapCandidate.jump)} px flick, fired ${Math.round(now - this.snapCandidate.at)} ms later`);
+      }
+      this.snapCandidate = null;
+      this.shots.push(hit);
+      if (this.shots.length > 20) this.shots.shift();
+      const rate = this.shots.filter(Boolean).length / this.shots.length;
+      if (this.shots.length >= 15 && rate >= 0.9 && now - this.lastAccFlag > 5000) {
+        this.flag("accuracy", now, `${Math.round(rate * 100)}% over last ${this.shots.length} shots`);
+        this.lastAccFlag = now;
+      }
+    },
+  };
+  ac.reset();
+
+  // ---------- Input ----------
+  const canvas = document.getElementById("arena");
+  const ctx = canvas.getContext("2d");
+
+  function toWorld(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+  }
+  function aimAt(p) {
+    if (botActive() && bot.target) return; // the bot owns the crosshair while it's locked
+    cross.x = Math.min(W, Math.max(0, p.x));
+    cross.y = Math.min(H, Math.max(0, p.y));
+  }
+  canvas.addEventListener("pointermove", e => aimAt(toWorld(e)));
+  canvas.addEventListener("pointerdown", e => {
+    if (e.button === 2) { bot.held = true; return; }
+    if (e.pointerType !== "mouse") aimAt(toWorld(e));
+    fire(performance.now());
+  });
+  window.addEventListener("pointerup", e => { if (e.button === 2) bot.held = false; });
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+  const modeSel = document.getElementById("mode");
+  const MODES = ["off", "snap", "smooth", "humanized"];
+  window.addEventListener("keydown", e => {
+    if (e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement) {
+      if (e.code !== "KeyQ") return;
+    }
+    keys.add(e.code);
+    if (e.code === "KeyQ") bot.held = true;
+    if (e.code === "KeyB" && !e.repeat) {
+      bot.mode = MODES[(MODES.indexOf(bot.mode) + 1) % MODES.length];
+      modeSel.value = bot.mode;
+    }
+    if (e.code === "KeyR" && !e.repeat) resetSession();
+  });
+  window.addEventListener("keyup", e => { keys.delete(e.code); if (e.code === "KeyQ") bot.held = false; });
+  window.addEventListener("blur", () => { keys.clear(); bot.held = false; });
+
+  modeSel.addEventListener("change", () => { bot.mode = modeSel.value; });
+  document.getElementById("strength").addEventListener("input", e => { bot.strength = +e.target.value; });
+  document.getElementById("always").addEventListener("change", e => { bot.always = e.target.checked; });
+  document.getElementById("autofire").addEventListener("change", e => { bot.autofire = e.target.checked; });
+  document.getElementById("esp").addEventListener("change", e => { bot.esp = e.target.checked; });
+
+  function resetSession() {
+    stats.shots = 0; stats.hits = 0;
+    ac.reset();
+    targets.forEach(t => spawn(t, t.id));
+    renderPanel(true);
+  }
+  document.getElementById("reset").addEventListener("click", resetSession);
+
+  // ---------- Drawing ----------
+  const css = getComputedStyle(document.documentElement);
+  const C = name => css.getPropertyValue(name).trim();
+  const col = { bg: C("--bg"), line: C("--line"), fg: C("--fg"), muted: C("--muted"), accent: C("--accent"), player: C("--player"), target: C("--target"), bad: C("--bad"), ok: C("--ok") };
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(w * 0.6 * dpr);
+  }
+  new ResizeObserver(resize).observe(canvas);
+  resize();
+
+  function drawCharacter(x, y, color, alpha = 1) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y + 3, TARGET_R - 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y - 9, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function draw(now) {
+    const s = canvas.width / W;
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    ctx.fillStyle = col.bg; ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.45;
+    ctx.beginPath();
+    for (let x = 50; x < W; x += 50) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 50; y < H; y += 50) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+
+    ctx.fillStyle = col.line;
+    for (const r of walls) ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    // Aim line from player
+    ctx.setLineDash([4, 6]); ctx.strokeStyle = col.player; ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.moveTo(player.x, player.y); ctx.lineTo(cross.x, cross.y); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+    for (const t of targets) {
+      if (!t.alive) continue;
+      if (t.visible) drawCharacter(t.x, t.y, col.target);
+      else if (bot.esp && botActive()) {
+        ctx.strokeStyle = col.accent; ctx.globalAlpha = 0.6; ctx.setLineDash([3, 3]);
+        ctx.strokeRect(t.x - TARGET_R, t.y - TARGET_R - 6, TARGET_R * 2, TARGET_R * 2 + 6);
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+    }
+
+    // Lock-on brackets
+    const lt = botActive() && bot.target;
+    if (lt) {
+      const r = TARGET_R + 8 + Math.sin(now / 120) * 1.5, k = 7;
+      ctx.strokeStyle = col.accent; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const cx = lt.x + sx * r, cy = lt.y + sy * r;
+        ctx.moveTo(cx, cy - sy * k); ctx.lineTo(cx, cy); ctx.lineTo(cx - sx * k, cy);
+      }
+      ctx.stroke(); ctx.lineWidth = 1;
+    }
+
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const tr = tracers[i], age = now - tr.born;
+      if (age > 180) { tracers.splice(i, 1); continue; }
+      ctx.strokeStyle = tr.hit ? col.accent : col.muted; ctx.globalAlpha = 1 - age / 180;
+      ctx.beginPath(); ctx.moveTo(tr.x1, tr.y1); ctx.lineTo(tr.x2, tr.y2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const p = sparks[i], age = now - p.born;
+      if (age > 450) { sparks.splice(i, 1); continue; }
+      ctx.fillStyle = col.accent; ctx.globalAlpha = 1 - age / 450;
+      ctx.fillRect(p.x + p.vx * age - 1.5, p.y + p.vy * age - 1.5, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = col.player;
+    ctx.beginPath(); ctx.arc(player.x, player.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
+
+    // Crosshair
+    const cc = lt ? col.accent : col.fg;
+    ctx.strokeStyle = cc; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cross.x - 12, cross.y); ctx.lineTo(cross.x - 4, cross.y);
+    ctx.moveTo(cross.x + 4, cross.y); ctx.lineTo(cross.x + 12, cross.y);
+    ctx.moveTo(cross.x, cross.y - 12); ctx.lineTo(cross.x, cross.y - 4);
+    ctx.moveTo(cross.x, cross.y + 4); ctx.lineTo(cross.x, cross.y + 12);
+    ctx.stroke(); ctx.lineWidth = 1;
+  }
+
+  // ---------- Panel ----------
+  const $ = id => document.getElementById(id);
+  const detList = $("detectors");
+  detList.innerHTML = Object.entries(DETECTORS).map(([k, d]) =>
+    `<li><b>${d.name}</b><span class="n" id="n-${k}">0</span><small>${d.why}</small></li>`).join("");
+
+  let lastPanel = 0, lastLogLen = -1, lastLogTop = null;
+  function renderPanel(force) {
+    const sc = Math.round(ac.score);
+    $("score").textContent = sc;
+    const m = $("meter");
+    m.style.width = sc + "%";
+    m.style.background = sc >= 60 ? col.bad : sc >= 25 ? C("--warn") : col.ok;
+    const v = $("verdict");
+    v.textContent = sc >= 60 ? "Flagged" : sc >= 25 ? "Suspicious" : "Clean";
+    v.className = "chip " + (sc >= 60 ? "bad" : sc >= 25 ? "warn" : "ok");
+
+    for (const k in DETECTORS) {
+      const el = $("n-" + k);
+      el.textContent = ac.counts[k];
+      el.classList.toggle("hot", ac.counts[k] > 0);
+    }
+
+    const chip = $("botChip");
+    const label = { off: "Off", snap: "Snap", smooth: "Smooth", humanized: "Humanized" }[bot.mode];
+    chip.textContent = bot.mode === "off" ? "Off" : botActive() ? (bot.target ? `${label} · locked` : `${label} · searching`) : `${label} · hold Q`;
+    chip.className = "chip " + (bot.mode === "off" ? "idle" : "armed");
+
+    $("sShots").textContent = stats.shots;
+    $("sHits").textContent = stats.hits;
+    $("sAcc").textContent = stats.shots ? Math.round(stats.hits / stats.shots * 100) + "%" : "–";
+
+    if (force || ac.log.length !== lastLogLen || ac.log[0] !== lastLogTop) {
+      lastLogLen = ac.log.length; lastLogTop = ac.log[0];
+      $("log").innerHTML = ac.log.length
+        ? ac.log.map(e => `<li><time>${(e.at / 1000).toFixed(1)}s</time><span><b>${DETECTORS[e.key].name}</b> · ${e.detail}</span></li>`).join("")
+        : `<li class="empty">No detections yet. Play normally, then turn the bot on and compare.</li>`;
+    }
+  }
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(50, now - last);
+    last = now;
+    updatePlayer(dt);
+    updateTargets(now, dt);
+    updateBot(now, dt);
+    ac.frame(now, dt);
+    draw(now);
+    if (now - lastPanel > 100) { renderPanel(); lastPanel = now; }
+    requestAnimationFrame(tick);
+  }
+  renderPanel(true);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
