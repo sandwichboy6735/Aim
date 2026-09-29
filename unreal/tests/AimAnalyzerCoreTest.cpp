@@ -29,7 +29,7 @@ namespace
 	constexpr int kKinds = static_cast<int>(Kind::Count);
 	const Vec3 kEye{ 0.0, 0.0, 160.0 };
 
-	enum class Player { Human, FastHuman, Snap, Smooth, SmoothNoFire, SmoothThroughWalls };
+	enum class Player { Human, FastHuman, HoldAngle, Snap, Smooth, SmoothNoFire, SmoothThroughWalls };
 
 	const char* playerName(Player player)
 	{
@@ -37,6 +37,7 @@ namespace
 		{
 		case Player::Human: return "Human (steady)";
 		case Player::FastHuman: return "Human (fast flicks)";
+		case Player::HoldAngle: return "Human (holds an angle)";
 		case Player::Snap: return "Bot: Snap";
 		case Player::Smooth: return "Bot: Smooth";
 		case Player::SmoothNoFire: return "Bot: Smooth, no fire";
@@ -113,7 +114,7 @@ namespace
 		bool flickDone = false;
 		double flickStart = 0.0, flickTime = 0.0, fromYaw = 0.0, fromPitch = 0.0, missYaw = 0.0, missPitch = 0.0;
 		const bool walls = player == Player::SmoothThroughWalls;
-		const bool human = player == Player::Human || player == Player::FastHuman;
+		const bool human = player == Player::Human || player == Player::FastHuman || player == Player::HoldAngle;
 		Result result;
 		result.seconds = seconds;
 		result.sampleHz = static_cast<int>(std::lround(60.0 / sampleEvery));
@@ -123,7 +124,20 @@ namespace
 			const double t = step * kDt;
 
 			// One strafing enemy at a time, appearing 15-40 degrees off the crosshair, 10-30 m away.
-			if (!target.alive && t >= target.respawnAt)
+			if (!target.alive && t >= target.respawnAt && player == Player::HoldAngle)
+			{
+				// Slow enemies walk behind a wall, straight through the spot this player is aiming at.
+				const double distance = uniform(150, 600);
+				const double side = uniform(0, 1) < 0.5 ? -1.0 : 1.0;
+				target.id = nextId++;
+				target.alive = true;
+				target.pos = Vec3{ distance, side * uniform(60, 120), 160.0 + uniform(-10, 10) };
+				target.vel = Vec3{ 0.0, -side * uniform(55, 120), 0.0 };
+				target.born = t;
+				target.hiddenUntil = 1e9;
+				target.nextTurn = 1e9;
+			}
+			else if (!target.alive && t >= target.respawnAt)
 			{
 				const double bearing = (yaw + (uniform(0, 1) < 0.5 ? -1.0 : 1.0) * uniform(15, 40)) * kDegToRad;
 				const double distance = uniform(1000, 3000);
@@ -170,6 +184,12 @@ namespace
 			noiseYaw += -noiseYaw / tau * kDt + tremorSd * std::sqrt(2.0 / tau * kDt) * gauss(0, 1);
 			noisePitch += -noisePitch / tau * kDt + tremorSd * std::sqrt(2.0 / tau * kDt) * gauss(0, 1);
 
+			if (player == Player::HoldAngle)
+			{
+				yaw = noiseYaw;
+				pitch = noisePitch;
+				continue;
+			}
 			if (!target.alive)
 			{
 				yawVel *= 0.8;
@@ -246,6 +266,8 @@ namespace
 					wantsFire = landed && err < radiusDeg * 1.5 && t - lastFire > 0.2 && uniform(0, 1) < fireChance;
 					break;
 				}
+				case Player::HoldAngle:
+					break;
 				case Player::Snap:
 					yaw = targetYaw;
 					pitch = targetPitch;
@@ -314,6 +336,7 @@ int main(int argc, char** argv)
 		{ Player::FastHuman, 600.0, 1, Kind::Count },
 		{ Player::Human, 600.0, 3, Kind::Count },
 		{ Player::FastHuman, 600.0, 3, Kind::Count },
+		{ Player::HoldAngle, 600.0, 1, Kind::Count },
 		{ Player::Snap, 60.0, 1, Kind::Snap },
 		{ Player::Snap, 60.0, 3, Kind::Reaction },
 		{ Player::Smooth, 60.0, 1, Kind::Reaction },

@@ -78,7 +78,7 @@ NetServerMaxTickRate=60
 | Snap-to-target | The aim is still, then turns 12°+ in one update, lands dead center on a head, and fires within 150 ms | +18 |
 | Inhuman reaction | The aim reaches an enemy less than 140 ms after it appears 10°+ away | +12 |
 | Robotic tracking | The aim follows a moving enemy for 0.6 s with almost no wobble | +15 |
-| Tracking through walls | The aim follows a hidden, moving enemy for 0.8 s | +25 |
+| Tracking through walls | The aim moves with a hidden enemy for 0.8 s. Holding a still crosshair on a spot an enemy walks through doesn't count. | +25 |
 | Impossible accuracy | 90% or more of the last 20 shots hit | +20 |
 
 The score runs from 0 to 100 and cools off by 4 points a second. Under 25 reads as **Clean**, 25 to 59 as **Suspicious**, and 60 or more as **Flagged**. Every check measures angles relative to how big the head looks at that distance, so the checks behave the same up close and far away.
@@ -127,11 +127,12 @@ Human (steady)          600s   60 |    0        0       0    0        0 |   404 
 Human (fast flicks)     600s   60 |    0        0       0    0        2 |   808  47%        20 | ok
 Human (steady)          600s   20 |    0        0       0    0        0 |   420  50%         0 | ok
 Human (fast flicks)     600s   20 |    0        0       0    0        0 |   795  46%         0 | ok
+Human (holds an angle)  600s   60 |    0        0       0    0        0 |     0   0%         0 | ok
 Bot: Snap                60s   60 |  120      120       0    0       10 |   120 100%       100 | ok
 Bot: Snap                60s   20 |    0      120       0    0       10 |   120 100%       100 | ok
 Bot: Smooth              60s   60 |    0       99       0    0       10 |    99 100%       100 | ok
-Bot: Smooth, no fire     60s   60 |    0       18      24    0        0 |     0   0%       100 | ok
-Bot: Smooth + walls      60s   60 |    0        0       0   31        0 |   278  12%       100 | ok
+Bot: Smooth, no fire     60s   60 |    0       18      29    0        0 |     0   0%       100 | ok
+Bot: Smooth + walls      60s   60 |    0        0       0   30        0 |   278  12%       100 | ok
 ```
 
 Humans must trip none of the first four checks and stay under 25. Each bot must trip the check it was built to trip. Pass a number to try another random seed, such as `./aimtest 42`. All seeds from 100 to 149 pass.

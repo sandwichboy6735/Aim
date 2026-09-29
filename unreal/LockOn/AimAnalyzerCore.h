@@ -80,12 +80,16 @@ namespace aimcore
 		double roboticWindow = 0.6;
 		double roboticWobbleRadii = 0.1;
 
-		// Through walls: aim stays within wallToleranceRadii head radii (and at least wallMinToleranceDeg)
-		// of a hidden, moving target for wallMinSeconds while the target crosses wallMinSweepDeg of view.
+		// Through walls: aim stays within a tolerance of a hidden, moving target for wallMinSeconds while
+		// the target crosses at least wallMinSweepDeg of view and wallSweepPerTolerance tolerances.
+		// The tolerance is wallToleranceRadii head radii, and at least wallMinToleranceDeg.
+		// A crosshair held still on a spot only sees a target cross about 2 tolerances (in one side, out
+		// the other), so the sweep rule means the aim has to move with the target.
 		double wallToleranceRadii = 2.0;
 		double wallMinToleranceDeg = 1.0;
 		double wallMinSeconds = 0.8;
 		double wallMinSweepDeg = 5.0;
+		double wallSweepPerTolerance = 3.0;
 
 		// Impossible accuracy: at least accuracyThreshold of the last accuracyWindow shots hit.
 		int accuracyWindow = 20;

@@ -200,7 +200,8 @@ namespace aimcore
 			{
 				state.hiddenFollow += dt;
 				state.hiddenSweep += sweep;
-				if (state.hiddenFollow >= config.wallMinSeconds && state.hiddenSweep >= config.wallMinSweepDeg && now - state.lastWall > 1.5)
+				const double neededSweep = std::fmax(config.wallMinSweepDeg, tolerance * config.wallSweepPerTolerance);
+				if (state.hiddenFollow >= config.wallMinSeconds && state.hiddenSweep >= neededSweep && now - state.lastWall > 1.5)
 				{
 					std::snprintf(text, sizeof(text), "followed a hidden target for %.1f s across %.0f deg", state.hiddenFollow, state.hiddenSweep);
 					flag(Kind::Wall, now, text);

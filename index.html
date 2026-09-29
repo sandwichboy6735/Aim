@@ -59,6 +59,7 @@ canvas {
   cursor: none; touch-action: none;
 }
 .keys { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.keys a.unreal { margin-left: auto; color: var(--accent); }
 kbd {
   font: 600 11px var(--font-data); color: var(--fg);
   border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px;
@@ -137,6 +138,7 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
       <span><kbd>WASD</kbd> move</span>
       <span><kbd>B</kbd> next bot mode</span>
       <span><kbd>R</kbd> reset</span>
+      <a class="unreal" href="https://github.com/sandwichboy6735/Aim/tree/HEAD/unreal">Unreal Engine version</a>
     </div>
   </section>
 
@@ -244,7 +246,7 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
     Object.assign(t, {
       id, x: p.x, y: p.y, wx: w.x, wy: w.y,
       speed: rand(0.05, 0.13), alive: true, visible: false, moving: true,
-      respawnAt: 0, pauseUntil: 0,
+      respawnAt: 0, pauseUntil: 0, diedAt: 0,
     });
     return t;
   }
@@ -305,6 +307,7 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
     if (hit) {
       stats.hits++;
       hit.alive = false;
+      hit.diedAt = now;
       hit.respawnAt = now + 900;
       for (let i = 0; i < 14; i++) {
         const a = rand(0, Math.PI * 2), s = rand(0.05, 0.25);
@@ -370,12 +373,15 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
 
   // ---------- Anti-cheat: sees only aim telemetry, shots and the game's target state ----------
   const DETECTORS = {
-    snap:     { name: "Snap-to-target", why: "Aim jumps 80+ px in one frame, lands within 3 px of a target's center, then fires.", weight: 18 },
-    reaction: { name: "Inhuman reaction", why: "On target less than 140 ms after it came into view from 60+ px away.", weight: 12 },
+    snap:     { name: "Snap-to-target", why: "Aim sits still, jumps 80+ px in one frame, lands dead center on a target, and a shot goes with it.", weight: 18 },
+    reaction: { name: "Inhuman reaction", why: "On a target less than 140 ms after it came into view 60+ px away.", weight: 12 },
     robotic:  { name: "Robotic tracking", why: "Follows a moving target for 600 ms with under 1.5 px of wobble.", weight: 15 },
-    wall:     { name: "Tracking through walls", why: "Aim follows a hidden target for 450 ms.", weight: 25 },
-    accuracy: { name: "Impossible accuracy", why: "90%+ hit rate over the last 20 shots.", weight: 20 },
+    wall:     { name: "Tracking through walls", why: "Aim moves with a hidden target for 600 ms as it travels 67+ px. A crosshair held still on a spot can't do that.", weight: 25 },
+    accuracy: { name: "Impossible accuracy", why: "90%+ of the last 20 shots hit. Good players can do this, so on its own it can't push anyone past Clean.", weight: 20 },
   };
+  // A target killed in the last 300 ms still counts for snaps and reaction time, at the spot where it died.
+  // Without this, a bot that kills in one shot removes the evidence before the checks run.
+  const LOST_MS = 300;
 
   const ac = {
     reset() {
@@ -383,7 +389,9 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
       this.counts = Object.fromEntries(Object.keys(DETECTORS).map(k => [k, 0]));
       this.log = [];
       this.prev = null;
-      this.snapCandidate = null;
+      this.moves = [];
+      this.snapArmed = null;
+      this.lastShotAt = -1e9;
       this.shots = [];
       this.lastAccFlag = -1e9;
       this.state = new Map();
@@ -395,37 +403,50 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
       this.log.unshift({ at: now - this.t0, key, detail });
       if (this.log.length > 50) this.log.length = 50;
     },
+    fresh() {
+      return { on: false, wasVisible: false, visibleSince: null, distAtVisible: 0, samples: [], lastRobotic: -1e9, hiddenMs: 0, hiddenTravel: 0, lastPos: null, lastWall: -1e9 };
+    },
     st(id) {
-      if (!this.state.has(id)) this.state.set(id, { on: false, wasVisible: false, visibleSince: null, distAtVisible: 0, samples: [], lastRobotic: -1e9, hiddenMs: 0, lastWall: -1e9 });
+      if (!this.state.has(id)) this.state.set(id, this.fresh());
       return this.state.get(id);
     },
     frame(now, dt) {
       this.score = Math.max(0, this.score - dt * 0.004); // cools off 4 points per second
 
-      // Big one-frame jumps that land dead center on something
-      if (this.prev) {
-        const jump = dist(cross.x, cross.y, this.prev.x, this.prev.y);
-        if (jump > 80) {
-          for (const t of targets) {
-            if (t.alive && dist(cross.x, cross.y, t.x, t.y) < 3) { this.snapCandidate = { at: now, jump }; break; }
-          }
-        }
-      }
+      // Snap: one big jump out of stillness. A human flick speeds up over several frames first.
+      const jump = this.prev ? dist(cross.x, cross.y, this.prev.x, this.prev.y) : 0;
+      let leadIn = 0;
+      for (const m of this.moves) if (now - m.at < 70) leadIn = Math.max(leadIn, m.px);
+      const bigJump = jump >= 80 && leadIn <= jump * 0.1;
+      this.moves.push({ at: now, px: jump });
+      while (now - this.moves[0].at > 500) this.moves.shift();
       this.prev = { x: cross.x, y: cross.y };
+      let landedDeadCenter = false;
 
       for (const t of targets) {
         const s = this.st(t.id);
-        if (!t.alive) { s.on = false; s.wasVisible = false; s.visibleSince = null; s.samples = []; s.hiddenMs = 0; continue; }
+        const lost = !t.alive;
+        if (lost && now - t.diedAt > LOST_MS) {
+          this.state.set(t.id, this.fresh());
+          continue;
+        }
         const d = dist(cross.x, cross.y, t.x, t.y);
         const on = d < TARGET_R;
+        if (bigJump && d < TARGET_R * 0.25) landedDeadCenter = true;
 
-        if (t.visible && !s.wasVisible) { s.visibleSince = now; s.distAtVisible = d; }
-        if (!t.visible) s.visibleSince = null;
-
-        if (on && !s.on && t.visible && s.visibleSince !== null && s.distAtVisible > 60) {
-          const rt = now - s.visibleSince;
-          if (rt < 140) this.flag("reaction", now, `${Math.round(rt)} ms to acquire from ${Math.round(s.distAtVisible)} px`);
+        if (!lost) {
+          if (t.visible && !s.wasVisible) { s.visibleSince = now; s.distAtVisible = d; }
+          if (!t.visible) s.visibleSince = null;
+          s.wasVisible = t.visible;
         }
+        // Judge only the first time the aim reaches a target after it appears.
+        if (on && !s.on && s.visibleSince !== null) {
+          const rt = now - s.visibleSince;
+          if (s.distAtVisible >= 60 && rt < 140) this.flag("reaction", now, `${Math.round(rt)} ms to reach it from ${Math.round(s.distAtVisible)} px`);
+          s.visibleSince = null;
+        }
+        s.on = on;
+        if (lost) continue;
 
         if (on && t.visible && t.moving) {
           s.samples.push({ at: now, dx: cross.x - t.x, dy: cross.y - t.y });
@@ -442,22 +463,34 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
           s.samples = [];
         }
 
-        if (!t.visible && d < 22) {
+        // Through walls: staying on a hidden target while it moves.
+        if (!t.visible && t.moving && d < TARGET_R * 1.4) {
           s.hiddenMs += dt;
-          if (s.hiddenMs > 450 && now - s.lastWall > 1500) { this.flag("wall", now, `followed hidden target ${Math.round(s.hiddenMs)} ms`); s.lastWall = now; s.hiddenMs = 0; }
+          if (s.lastPos) s.hiddenTravel += dist(t.x, t.y, s.lastPos.x, s.lastPos.y);
+          // A still crosshair only sees a target cross its 45 px zone, so 67 px means the aim moved with it.
+          if (s.hiddenMs >= 600 && s.hiddenTravel >= TARGET_R * 1.4 * 3 && now - s.lastWall > 1500) {
+            this.flag("wall", now, `followed a hidden target ${Math.round(s.hiddenMs)} ms as it moved ${Math.round(s.hiddenTravel)} px`);
+            s.lastWall = now; s.hiddenMs = 0; s.hiddenTravel = 0;
+          }
         } else {
-          s.hiddenMs = 0;
+          s.hiddenMs = 0; s.hiddenTravel = 0;
         }
+        s.lastPos = { x: t.x, y: t.y };
+      }
 
-        s.on = on;
-        s.wasVisible = t.visible;
+      // The shot can come just before the jump shows up here (same frame) or just after.
+      if (this.snapArmed && now - this.snapArmed.at > 150) this.snapArmed = null;
+      if (landedDeadCenter) {
+        if (now - this.lastShotAt <= 100) this.flag("snap", now, `${Math.round(jump)} px jump out of stillness, fired as it landed`);
+        else this.snapArmed = { at: now, jump };
       }
     },
     onShot(now, hit) {
-      if (this.snapCandidate && now - this.snapCandidate.at < 150) {
-        this.flag("snap", now, `${Math.round(this.snapCandidate.jump)} px flick, fired ${Math.round(now - this.snapCandidate.at)} ms later`);
+      if (this.snapArmed && now - this.snapArmed.at <= 150) {
+        this.flag("snap", now, `${Math.round(this.snapArmed.jump)} px jump out of stillness, fired ${Math.round(now - this.snapArmed.at)} ms later`);
       }
-      this.snapCandidate = null;
+      this.snapArmed = null;
+      this.lastShotAt = now;
       this.shots.push(hit);
       if (this.shots.length > 20) this.shots.shift();
       const rate = this.shots.filter(Boolean).length / this.shots.length;
@@ -663,8 +696,8 @@ input[type="range"] { accent-color: var(--accent); width: 140px; }
     last = now;
     updatePlayer(dt);
     updateTargets(now, dt);
+    ac.frame(now, dt); // checks the aim as it stands, before the bot reacts to this frame (like a server receiving input)
     updateBot(now, dt);
-    ac.frame(now, dt);
     draw(now);
     if (now - lastPanel > 100) { renderPanel(); lastPanel = now; }
     requestAnimationFrame(tick);
