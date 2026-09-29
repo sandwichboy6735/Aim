@@ -42,3 +42,9 @@ decays over time.
 The Humanized mode is built to slip past most of these checks. Use it as the hard case
 when you design better detectors, for example ones based on reaction-time spread or on
 how the jitter is distributed.
+
+## Unreal Engine version
+
+[`unreal/`](unreal) has the same bot and anti-cheat as C++ components for an Unreal Engine 5 FPS. The anti-cheat runs on
+the server, rewinds enemies by each player's ping, and comes with a test that runs its detection logic against simulated
+players. See [`unreal/README.md`](unreal/README.md) for setup.
